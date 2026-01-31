@@ -2,9 +2,24 @@ import streamlit as st
 from openai import OpenAI
 import json
 import os
+import random
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION & STYLE ---
 st.set_page_config(page_title="Nihongo Flash", page_icon="📚")
+st.markdown("""
+    <style>
+    .card {
+        border: 2px solid #f0f2f6;
+        border-radius: 15px;
+        padding: 40px;
+        text-align: center;
+        background-color: #ffffff;
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+        margin: 20px 0;
+    }
+    .kanji { font-size: 50px; font-weight: bold; color: #2e3136; }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- CONNEXION ---
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
@@ -27,44 +42,72 @@ if "collection" not in st.session_state:
 
 # --- INTERFACE ---
 st.title("📚 Nihongo Flash")
-st.write("Gère ton vocabulaire et révise tes flashcards.")
 
-tab1, tab2 = st.tabs(["➕ Ajouter des mots", "🧠 Réviser"])
+tab1, tab2 = st.tabs(["➕ Ajouter", "🧠 Mode Flashcards"])
 
 with tab1:
-    st.subheader("Nouveau vocabulaire")
-    # Entrée manuelle simplifiée
-    new_word = st.text_input("Mot en Japonais (Kanji ou Kana)")
+    st.subheader("Ajouter un mot")
+    new_word = st.text_input("Mot en Japonais", placeholder="Ex: 猫 ou 食べる")
     
-    if st.button("Ajouter à ma collection") and new_word:
-        with st.spinner("L'IA complète les détails..."):
+    if st.button("Enregistrer") and new_word:
+        with st.spinner("L'IA prépare la carte..."):
             try:
-                # On demande à l'IA de structurer le mot
-                prompt = f"Pour le mot japonais '{new_word}', donne-moi la lecture en Hiragana/Katakana et la traduction française. Réponds uniquement en JSON: {{\"kana\": \"...\", \"fr\": \"...\"}}"
+                prompt = f"Pour '{new_word}', donne la lecture (Kana) et la traduction (Français). Réponds en JSON : {{\"kana\": \"...\", \"fr\": \"...\"}}"
                 response = client.chat.completions.create(
                     model="gpt-4o-mini",
                     messages=[{"role": "user", "content": prompt}]
                 )
                 details = json.loads(response.choices[0].message.content)
-                
-                # Sauvegarde
                 entry = {"jap": new_word, "kana": details['kana'], "fr": details['fr']}
                 st.session_state.collection.append(entry)
                 save_data(st.session_state.collection)
-                st.success(f"Ajouté : {new_word} ({details['kana']})")
+                st.success(f"Ajouté : {new_word} !")
             except:
                 st.error("Erreur de connexion.")
 
+    st.write("---")
+    st.write(f"Ma bibliothèque : {len(st.session_state.collection)} mots")
+
 with tab2:
     if not st.session_state.collection:
-        st.info("Ta collection est vide.")
+        st.info("Ajoute des mots pour commencer à réviser.")
     else:
-        st.write(f"Tu as {len(st.session_state.collection)} mots à réviser.")
-        for i, item in enumerate(st.session_state.collection):
-            with st.expander(f"🇯🇵 {item['jap']}"):
-                st.write(f"**Lecture :** {item['kana']}")
-                st.write(f"**Français :** {item['fr']}")
-                if st.button("Supprimer", key=f"del_{i}"):
-                    st.session_state.collection.pop(i)
-                    save_data(st.session_state.collection)
-                    st.rerun()
+        # Mélanger les mots pour la session
+        if "session_index" not in st.session_state:
+            st.session_state.session_index = 0
+            random.shuffle(st.session_state.collection)
+            st.session_state.show_answer = False
+
+        idx = st.session_state.session_index % len(st.session_state.collection)
+        carte_actuelle = st.session_state.collection[idx]
+
+        # --- AFFICHAGE DE LA CARTE ---
+        st.write(f"Carte {idx + 1} / {len(st.session_state.collection)}")
+        
+        # Le Recto (Design CSS)
+        st.markdown(f"""
+            <div class="card">
+                <div class="kanji">{carte_actuelle['jap']}</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # Bouton pour révéler
+        if not st.session_state.show_answer:
+            if st.button("👁️ Voir la réponse", use_container_width=True):
+                st.session_state.show_answer = True
+                st.rerun()
+        else:
+            # Le Verso
+            st.success(f"**Lecture :** {carte_actuelle['kana']}")
+            st.info(f"**Traduction :** {carte_actuelle['fr']}")
+            
+            if st.button("Suivant ➡️", use_container_width=True):
+                st.session_state.session_index += 1
+                st.session_state.show_answer = False
+                st.rerun()
+
+        st.write("---")
+        if st.button("🗑️ Vider la bibliothèque"):
+            st.session_state.collection = []
+            save_data([])
+            st.rerun()
